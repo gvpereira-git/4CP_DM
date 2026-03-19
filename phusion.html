@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phusion PCR Calculator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 14px; background: #fff; color: #111; padding: 24px; max-width: 760px; margin: 0 auto; }
+  h2 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+  .ctrl-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .ctrl-group { display: flex; align-items: center; gap: 7px; }
+  .ctrl-group label { font-size: 12px; color: #555; white-space: nowrap; }
+  .ctrl-group input[type=number] { width: 68px; font-family: monospace; font-size: 13px; padding: 4px 7px; border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #111; text-align: right; }
+  .ctrl-group input:focus { outline: none; border-color: #3a85d4; }
+  .btn-group { display: flex; gap: 5px; }
+  .vol-btn { font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 6px; border: 1px solid #ccc; background: #fff; color: #555; cursor: pointer; transition: background 0.1s; }
+  .vol-btn:hover { background: #f0f0f0; }
+  .vol-btn.active { background: #e8f0fb; color: #2060b0; border-color: #93b8e8; }
+  .summary-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .summary-card { background: #f5f5f5; border-radius: 7px; padding: 10px 14px; flex: 1; min-width: 110px; }
+  .summary-card .lbl { font-size: 11px; color: #888; margin-bottom: 2px; }
+  .summary-card .val { font-family: monospace; font-size: 18px; font-weight: 600; color: #111; }
+  .summary-card .unit { font-size: 11px; color: #888; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.4px; padding: 6px 8px; border-bottom: 1.5px solid #ddd; text-align: right; }
+  th.left { text-align: left; }
+  td { padding: 7px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  tr:hover td { background: #fafafa; }
+  tr:last-child td { border-bottom: none; }
+  td.mono { font-family: monospace; font-size: 13px; text-align: right; }
+  td.result { font-family: monospace; font-size: 13px; font-weight: 600; color: #2060b0; text-align: right; }
+  td.conc { font-size: 11px; color: #888; text-align: right; }
+  tr.sep td { border-top: 1.5px solid #ddd; font-weight: 600; }
+  .primer-tag { font-size: 10px; font-weight: 600; color: #8a5f00; background: #fff3cd; padding: 1px 5px; border-radius: 4px; margin-left: 5px; }
+  .note { font-size: 11px; color: #999; margin-top: 14px; }
+  .footer { margin-top: 14px; font-size: 11px; color: #bbb; }
+</style>
+</head>
+<body>
+
+<h2>Phusion PCR — Master Mix Calculator</h2>
+<p class="subtitle">Adjust reaction volume, number of samples, and primer volume. Master mix includes 10% overage when n &gt; 1.</p>
+
+<div class="ctrl-row">
+  <div class="ctrl-group">
+    <label>Reaction volume:</label>
+    <div class="btn-group">
+      <button class="vol-btn" onclick="setVol(10)">10 µL</button>
+      <button class="vol-btn active" onclick="setVol(20)">20 µL</button>
+      <button class="vol-btn" onclick="setVol(50)">50 µL</button>
+    </div>
+    <input type="number" id="vol-input" value="20" min="1" step="1" oninput="handleCustomVol()" style="width:60px">
+    <span style="font-size:12px;color:#888">µL custom</span>
+  </div>
+</div>
+
+<div class="ctrl-row">
+  <div class="ctrl-group">
+    <label>Number of samples:</label>
+    <input type="number" id="n-input" value="2" min="1" max="200" step="1" oninput="recalc()">
+  </div>
+  <div class="ctrl-group">
+    <label>Primer volume each (µL):</label>
+    <input type="number" id="primer-input" value="1" min="0.01" step="0.05" oninput="recalc()">
+  </div>
+</div>
+
+<div class="summary-row" id="summary-row"></div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="left" style="width:40%">Component</th>
+      <th style="width:15%">Per rxn (µL)</th>
+      <th style="width:20%" id="th-total">Master mix (µL)</th>
+      <th style="width:15%">Final conc.</th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<p class="note" id="note-text"></p>
+<p class="footer">Phusion High-Fidelity DNA Polymerase — NEB M0530 &nbsp;|&nbsp; Martens Lab</p>
+
+<script>
+let currentVol = 20;
+
+const presets = {
+  10: { buffer: 2,  dntp: 0.2, fwd: 0.05, rev: 0.05, template: 0.5, poly: 0.1 },
+  20: { buffer: 4,  dntp: 0.4, fwd: 1,    rev: 1,    template: 1,   poly: 0.2 },
+  50: { buffer: 10, dntp: 1,   fwd: 0.5,  rev: 0.5,  template: 1,   poly: 0.5 },
+};
+
+function getRecipe(vol, primerVol) {
+  let r;
+  if (presets[vol]) {
+    r = Object.assign({}, presets[vol]);
+  } else {
+    const ratio = vol / 20;
+    r = {
+      buffer:   +(4   * ratio).toFixed(4),
+      dntp:     +(0.4 * ratio).toFixed(4),
+      fwd:      +(1   * ratio).toFixed(4),
+      rev:      +(1   * ratio).toFixed(4),
+      template: +(1   * ratio).toFixed(4),
+      poly:     +(0.2 * ratio).toFixed(4),
+    };
+  }
+  r.fwd = primerVol;
+  r.rev = primerVol;
+  const fixed = r.buffer + r.dntp + r.fwd + r.rev + r.template + r.poly;
+  r.water = Math.max(0, vol - fixed);
+  return r;
+}
+
+function fmt(n) {
+  if (n === null || n === undefined) return "—";
+  if (n >= 100) return n.toFixed(1);
+  if (n >= 10)  return n.toFixed(2).replace(/\.?0+$/, "");
+  if (n >= 1)   return n.toFixed(3).replace(/\.?0+$/, "");
+  return n.toPrecision(3).replace(/\.?0+$/, "");
+}
+
+function setVol(v) {
+  currentVol = v;
+  document.getElementById("vol-input").value = v;
+  document.querySelectorAll(".vol-btn").forEach(b => b.classList.remove("active"));
+  const btns = document.querySelectorAll(".vol-btn");
+  if (v === 10) btns[0].classList.add("active");
+  else if (v === 20) btns[1].classList.add("active");
+  else if (v === 50) btns[2].classList.add("active");
+  recalc();
+}
+
+function handleCustomVol() {
+  const v = parseFloat(document.getElementById("vol-input").value);
+  if (!v || v <= 0) return;
+  currentVol = v;
+  document.querySelectorAll(".vol-btn").forEach(b => b.classList.remove("active"));
+  recalc();
+}
+
+function recalc() {
+  const vol = currentVol;
+  const n = Math.max(1, parseInt(document.getElementById("n-input").value) || 1);
+  const primerVol = parseFloat(document.getElementById("primer-input").value) || 1;
+  const r = getRecipe(vol, primerVol);
+  const mmFactor = n > 1 ? n * 1.1 : n;
+
+  document.getElementById("th-total").textContent = n > 1 ? "Master mix (n+10%)" : "Total (×1)";
+
+  const rows = [
+    { name: "H\u2082O",                   per: r.water,    conc: "—",          isMM: true,  isPrimer: false },
+    { name: "5\u00D7 Phusion HF buffer",  per: r.buffer,   conc: "1\u00D7",    isMM: true,  isPrimer: false },
+    { name: "10 mM dNTPs",               per: r.dntp,     conc: "200 \u03BCM", isMM: true,  isPrimer: false },
+    { name: "Forward primer",            per: r.fwd,      conc: "0.5 \u03BCM", isMM: false, isPrimer: true  },
+    { name: "Reverse primer",            per: r.rev,      conc: "0.5 \u03BCM", isMM: false, isPrimer: true  },
+    { name: "Template DNA",              per: r.template, conc: "variable",   isMM: false, isPrimer: false },
+    { name: "Phusion polymerase",        per: r.poly,     conc: "0.02 U/\u03BCL", isMM: true, isPrimer: false },
+  ];
+
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  rows.forEach(row => {
+    const total = row.isMM ? row.per * mmFactor : row.per * n;
+    const tag = row.isPrimer ? '<span class="primer-tag">adjustable</span>' : "";
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + row.name + tag + "</td>" +
+      "<td class='mono'>" + fmt(row.per) + "</td>" +
+      "<td class='result'>" + fmt(total) + "</td>" +
+      "<td class='conc'>" + row.conc + "</td>";
+    tbody.appendChild(tr);
+  });
+
+  const total = r.water + r.buffer + r.dntp + r.fwd + r.rev + r.template + r.poly;
+  const sepTr = document.createElement("tr");
+  sepTr.className = "sep";
+  sepTr.innerHTML =
+    "<td>Total per reaction</td>" +
+    "<td class='mono'>" + fmt(total) + "</td>" +
+    "<td class='result' style='color:#1a7a40'>—</td>" +
+    "<td></td>";
+  tbody.appendChild(sepTr);
+
+  const mmVol = (r.water + r.buffer + r.dntp + r.poly) * mmFactor;
+  document.getElementById("summary-row").innerHTML =
+    "<div class='summary-card'><div class='lbl'>Reaction vol</div><div class='val'>" + vol + " <span class='unit'>µL</span></div></div>" +
+    "<div class='summary-card'><div class='lbl'>Samples</div><div class='val'>" + n + "</div></div>" +
+    "<div class='summary-card'><div class='lbl'>Primer per rxn</div><div class='val'>" + fmt(primerVol) + " <span class='unit'>µL</span></div></div>" +
+    "<div class='summary-card'><div class='lbl'>MM (buffer+enzyme)</div><div class='val'>" + fmt(mmVol) + " <span class='unit'>µL</span></div></div>";
+
+  document.getElementById("note-text").textContent = n > 1
+    ? "Master mix volumes include 10% overage for pipetting loss. Add template DNA and primers individually to each tube."
+    : "Single reaction — no overage applied. Add all components directly.";
+}
+
+recalc();
+</script>
+</body>
+</html>
