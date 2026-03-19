@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DMM 2× Agar Calculator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 14px; background: #fff; color: #111; padding: 24px; max-width: 740px; margin: 0 auto; }
+  h2 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+  .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  .controls label { font-size: 13px; color: #555; }
+  .controls input[type=number] { width: 80px; font-size: 14px; font-family: monospace; padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; text-align: right; }
+  .controls input[type=number]:focus { outline: none; border-color: #3a85d4; }
+  .badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 12px; background: #e8f0fb; color: #2060b0; letter-spacing: 0.3px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.4px; padding: 6px 10px; border-bottom: 1.5px solid #e0e0e0; text-align: left; }
+  thead th.num { text-align: right; }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; color: #111; vertical-align: middle; }
+  tbody tr:hover td { background: #f8f9fb; }
+  tbody tr:last-child td { border-bottom: none; }
+  .mono { font-family: monospace; font-size: 13px; }
+  .num { text-align: right; }
+  .unit { font-size: 12px; color: #888; padding-left: 2px !important; }
+  .result { font-family: monospace; font-size: 13px; font-weight: 600; color: #2060b0; text-align: right; }
+  .water-row td { border-top: 1.5px solid #ddd !important; font-weight: 600; color: #333; }
+  .water-row .result { color: #1a7a40; }
+  .footer { margin-top: 14px; font-size: 11px; color: #aaa; }
+  @media print { body { padding: 12px; } }
+</style>
+</head>
+<body>
+<h2>DMM 2× Agar — Volume Calculator</h2>
+<p class="subtitle">Column 2 = amounts for 1 L of 1× media &nbsp;|&nbsp; Column 3 = scaled amounts for your target volume at 2×</p>
+
+<div class="controls">
+  <span class="badge">2× stock</span>
+  <label for="vol">Target volume (mL):</label>
+  <input type="number" id="vol" value="50" min="1" step="1" oninput="recalc()">
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:42%">Component</th>
+      <th class="num" style="width:14%">Per 1 L (1×)</th>
+      <th style="width:6%"></th>
+      <th class="num" style="width:14%" id="th-vol">For 50 mL (2×)</th>
+      <th style="width:8%"></th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<p class="footer">Formula: amount = (per-1L value) × (target mL ÷ 1000) × 2 &nbsp;|&nbsp; Generated for Martens Lab — DMM 2× Agar</p>
+
+<script>
+const rows = [
+  { name: "10× Bacteroides salts",     per1L: 100,  unit: "mL"  },
+  { name: "100× Puridine/pyrimidine",  per1L: 10,   unit: "mL"  },
+  { name: "Trace mineral mixture",     per1L: 10,   unit: "mL"  },
+  { name: "Balch vitamins",            per1L: 10,   unit: "mL"  },
+  { name: "Hematin",                   per1L: 10,   unit: "mL"  },
+  { name: "Calcium chloride",          per1L: 1,    unit: "mL"  },
+  { name: "FeSO\u2084",                per1L: 1,    unit: "mL"  },
+  { name: "MgCl\u2082",               per1L: 1,    unit: "mL"  },
+  { name: "Vitamin K3",               per1L: 1,    unit: "mL"  },
+  { name: "Vitamin B12",              per1L: 500,  unit: "µL"  },
+  { name: "L-Cysteine",               per1L: 1,    unit: "g"   },
+  { name: "4CL",                      per1L: 200,  unit: "mL"  },
+  { name: "BHI",                      per1L: 1.85, unit: "g"   },
+];
+
+function fmt(n) {
+  if (n >= 100)  return n.toFixed(0);
+  if (n >= 10)   return n.toFixed(1).replace(/\.0$/, "");
+  if (n >= 1)    return n.toFixed(2).replace(/\.?0+$/, "");
+  return n.toPrecision(3).replace(/\.?0+$/, "");
+}
+
+function recalc() {
+  const vol = parseFloat(document.getElementById("vol").value) || 50;
+  document.getElementById("th-vol").textContent = "For " + vol + " mL (2\xD7)";
+
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  let liquidTotal = 0;
+
+  rows.forEach(r => {
+    const raw = r.per1L * (vol / 1000) * 2;
+    let scaled = raw;
+    let unit = r.unit;
+
+    if (unit === "mL" && scaled < 0.1)   { scaled = scaled * 1000; unit = "µL"; }
+    if (unit === "µL" && scaled >= 1000) { scaled = scaled / 1000; unit = "mL"; }
+
+    if (r.unit === "mL" || r.unit === "µL") {
+      liquidTotal += (r.unit === "µL") ? raw / 1000 : raw;
+    }
+
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td>' + r.name + '</td>' +
+      '<td class="num mono">' + fmt(r.per1L) + '</td>' +
+      '<td class="unit">' + r.unit + '</td>' +
+      '<td class="result">' + fmt(scaled) + '</td>' +
+      '<td class="unit">' + unit + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  const water = Math.max(0, vol - liquidTotal);
+  const wtr = document.createElement("tr");
+  wtr.className = "water-row";
+  wtr.innerHTML =
+    '<td>Water (q.s. to volume)</td>' +
+    '<td class="num mono">—</td><td></td>' +
+    '<td class="result">' + fmt(water) + '</td>' +
+    '<td class="unit">mL</td>';
+  tbody.appendChild(wtr);
+}
+
+recalc();
+</script>
+</body>
+</html>
